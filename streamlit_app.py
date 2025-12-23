@@ -20,8 +20,12 @@ if not os.path.exists(DB_PATH):
     # Try alternate path for local dev if run from backend folder
     DB_PATH = "sql_app.db"
 
-SQLALCHEMY_DATABASE_URL = f"sqlite:///./{DB_PATH}"
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///./{DB_PATH}")
+if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
+    # Fix for SQLAlchemy 1.4+ which requires postgresql://
+    SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in SQLALCHEMY_DATABASE_URL else {})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
