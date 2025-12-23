@@ -1,0 +1,79 @@
+name: Deploy Frontend to AWS EC2
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Run Flutter analyzer
+        run: flutter analyze
+
+      - name: Run tests
+        run: flutter test
+
+      - name: Build Web App
+        env:
+          API_URL: ${{ secrets.API_URL }}
+        run: |
+          flutter build web --release --dart-define=API_URL=$API_URL
+
+      - name: Create deployment archive
+        run: |
+          cd build/web
+          tar -czf ../../flutter-web.tar.gz .
+          cd ../..
+
+      - name: Deploy to EC2
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT || 22 }}
+          source: "flutter-web.tar.gz"
+          target: "/tmp/"
+
+      - name: Extract and configure on EC2
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT || 22 }}
+          script: |
+            # Create web directory if it doesn't exist
+            sudo mkdir -p /var/www/payment-app
+            
+            # Extract the archive
+            sudo tar -xzf /tmp/flutter-web.tar.gz -C /var/www/payment-app
+            
+            # Set proper permissions
+            sudo chown -R nginx:nginx /var/www/payment-app
+            sudo chmod -R 755 /var/www/payment-app
+            
+            # Reload nginx
+            sudo systemctl reload nginx
+            
+            # Clean up
+            rm /tmp/flutter-web.tar.gz
+
+      - name: Verify deployment
+        run: |
+          sleep 5
+          curl -f http://${{ secrets.EC2_HOST }} || exit 1
